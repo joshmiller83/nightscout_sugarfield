@@ -1,0 +1,40 @@
+name: Deploy Nightscout
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GCP VM
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCP_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.GCP_VM_IP }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }}" << 'REMOTE'
+            set -e
+            echo "--- Pulling latest Nightscout code ---"
+            cd /opt/nightscout
+            git fetch origin master
+            CURRENT=$(git rev-parse HEAD)
+            LATEST=$(git rev-parse origin/master)
+
+            if [ "$CURRENT" != "$LATEST" ]; then
+              git pull origin master
+              npm ci --omit=optional
+              echo "--- Restarting Nightscout via PM2 ---"
+              pm2 restart nightscout --update-env
+              pm2 save
+              echo "--- Deploy complete. New version: $LATEST ---"
+            else
+              echo "--- Already up to date ($CURRENT), restarting anyway ---"
+              pm2 restart nightscout
+            fi
+          REMOTE
