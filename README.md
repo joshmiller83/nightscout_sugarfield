@@ -105,6 +105,13 @@ pm2 save
 ### Rotating the API secret
 Edit `/opt/nightscout/.env` on the VM, change `API_SECRET`, then `pm2 restart nightscout`. Update your CGM uploader app with the new secret.
 
+### Database pruning
+`.github/workflows/prune-db.yml` runs monthly (1st of the month, 06:00 UTC; also runnable manually via `workflow_dispatch`) and deletes `entries`, `treatments`, and `devicestatus` documents older than 90 days. This keeps MongoDB Atlas M0 (512MB) from filling up.
+
+It works by SSHing into the VM (reusing the same `GCP_SSH_PRIVATE_KEY`/`GCP_VM_IP`/`GCP_VM_USER` secrets as the deploy workflow) and running `scripts/prune-old-data.js` there — this matters because Atlas only whitelists the VM's IP, not GitHub's runner IPs, so the job can't connect directly from Actions. The script reads `MONGODB_URI` out of the VM's `/opt/nightscout/.env` at runtime; it is never stored as a GitHub secret.
+
+To change the retention window, edit `RETENTION_DAYS` in `scripts/prune-old-data.js`.
+
 ---
 
 ## Local Files Reference
@@ -118,6 +125,8 @@ Edit `/opt/nightscout/.env` on the VM, change `API_SECRET`, then `pm2 restart ni
 | `ecosystem.config.js` | PM2 config reference |
 | `.env.example` | Template showing required environment variables |
 | `.github/workflows/deploy.yml` | GitHub Actions deploy workflow |
+| `.github/workflows/prune-db.yml` | GitHub Actions monthly DB pruning workflow |
+| `scripts/prune-old-data.js` | Deletes entries/treatments/devicestatus older than 90 days |
 
 ### Secrets and credentials (NOT in this repo)
 | What | Where |

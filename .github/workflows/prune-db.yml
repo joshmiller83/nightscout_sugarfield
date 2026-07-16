@@ -1,0 +1,40 @@
+name: Prune Old Database Records
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # once a month, on the 1st, 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy prune script to VM
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCP_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            scripts/prune-old-data.js \
+            "${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }}:/tmp/prune-old-data.js"
+
+      - name: Run prune job on VM
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=60 \
+            "${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }}" << 'REMOTE'
+            set -e
+            echo "--- Pruning entries/treatments/devicestatus older than 90 days ---"
+            MONGODB_URI=$(grep '^MONGODB_URI=' /opt/nightscout/.env | cut -d= -f2-)
+            export MONGODB_URI
+            NODE_PATH=/opt/nightscout/node_modules node /tmp/prune-old-data.js
+            rm -f /tmp/prune-old-data.js
+            echo "--- Prune complete ---"
+          REMOTE
